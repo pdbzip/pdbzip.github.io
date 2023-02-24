@@ -1,0 +1,147 @@
+<html>
+
+<head>
+	<title>pdbzip -</title>
+	<script type="text/javascript" src="https://npmcdn.com/ejs@3.1.8/ejs.min.js"></script>
+	<script type="text/javascript" src="https://cdn.rawgit.com/stuk/jszip/v3.10.1/dist/jszip.min.js"></script>
+</head>
+
+<body>
+	<div id="render"></div>
+	<div>
+		<h5>debug msg</h5>
+		<textarea id="debugmsg" cols="80" rows="10" readonly></textarea>
+	</div>
+
+	<script type="text/javascript">
+		let __data = [];
+		let __filename = '';
+		// const symbolServer = 'https://msdl.microsoft.com/download/symbols';
+		const symbolServer = 'https://pdbzip-api.pril.workers.dev/api';
+
+		async function loadJson(url) {
+			const r = await (await fetch(url)).json();
+
+			return r;
+		}
+
+		function render() {
+			const html = ejs.render(`
+			<h2 id="filename"><%= filename %></h2>
+			<p><a href="./">list</a> <a href="#<%= filename %>" onclick="downloadAllVersion()">all download</a></p>
+			<br />
+			<ul>
+			<% for(const entry of data ) { %>
+				<li><%= entry.OsVersion %> (<%= entry.FileSign %>, <%= entry.FileVersion || 'empty' %>) - <a href="#<%= filename %>" onclick="downloadSingleVersion('<%= entry.OsVersion %>')" >download</a></li>
+			<% } %>
+			</ul>
+			`, { data: __data, filename: __filename });
+
+			document.getElementById('render').innerHTML = html;
+		}
+
+		function clearDebugMsg() {
+			const debugmsg = document.getElementById('debugmsg');
+			debugmsg.value = '';
+		}
+
+		function appendDebugMsg(string) {
+			const debugmsg = document.getElementById('debugmsg');
+			debugmsg.value += string + '\n';
+			debugmsg.scrollTop = debugmsg.scrollHeight;
+		}
+
+		async function downloadEntry(entry) {
+
+			const dllUrl = `${symbolServer}/${entry.FileName}/${entry.FileSign}/${entry.FileName}`;
+			const pdbUrl = `${symbolServer}/${entry.SymbolName}/${entry.SymbolSign}/${entry.SymbolName}`;
+
+			appendDebugMsg(`start download ${entry.OsVersion} version dll, pdb`);
+			const [dll, pdb] = await Promise.all([
+				(await fetch(dllUrl)).blob(),
+				(await fetch(pdbUrl)).blob()
+			]);
+
+			appendDebugMsg(`end download ${entry.OsVersion} version dll, pdb`);
+			return { dll, pdb };
+		}
+
+		async function downloadSingleVersion(osVersion) {
+			const entry = __data.find(v => v.OsVersion === osVersion);
+			if (!entry) {
+				return alert(`not found ${osVersion}`);
+			}
+
+			clearDebugMsg();
+
+			const r = await downloadEntry(entry);
+			const withoutExt = __filename.split('.').slice(0, -1).join('.');
+
+			appendDebugMsg(`start zipping ${osVersion} version`);
+			const zip = new JSZip();
+			zip.file(__filename, r.dll);
+			zip.file(withoutExt + '.pdb', r.pdb);
+
+			const blob = await zip.generateAsync({ type: 'blob' });
+
+			appendDebugMsg(`end zipping ${osVersion} version`);
+			downloadBlob(blob, `${withoutExt}_${osVersion}.zip`);
+		}
+
+		async function downloadAllVersion() {
+			const withoutExt = __filename.split('.').slice(0, -1).join('.');
+			const pdbName = withoutExt + '.pdb';
+			
+			clearDebugMsg();
+			const files = await Promise.all(__data.map(v => downloadEntry(v).then(vv => ({ ...vv, OsVersion: v.OsVersion }))));
+			
+			appendDebugMsg('start zipping all version');
+			const zip = new JSZip();
+			for (const file of files) {
+				zip.file(`${file.OsVersion}/${__filename}`, file.dll);
+				zip.file(`${file.OsVersion}/${pdbName}`, file.pdb);
+			}
+
+			const blob = await zip.generateAsync({ type: 'blob' });
+
+			appendDebugMsg('end zipping all version');
+			downloadBlob(blob, `${withoutExt}_all.zip`);
+		}
+
+		function downloadBlob(blob, filename) {
+			const a = document.createElement('a');
+			document.body.appendChild(a);
+			const url = window.URL.createObjectURL(blob);
+			a.href = url;
+			a.download = filename;
+			a.click();
+			setTimeout(() => {
+				window.URL.revokeObjectURL(url);
+				document.body.removeChild(a);
+			}, 0);
+		}
+
+		async function init() {
+			__filename = window.location.hash.charAt(0) == '#' ?
+				window.location.hash.slice(1) : window.location.hash
+			if (!__filename) {
+				window.location = './';
+			}
+
+			document.title += ' ' + __filename;
+
+			try {
+				const data = await loadJson(`${__filename.charAt(0)}/${__filename}.json`);
+				__data = data;
+				render();
+			}
+			catch (e) {
+				alert(e)
+			}
+		}
+
+		init();
+	</script>
+</body>
+
+</html>

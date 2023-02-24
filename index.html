@@ -1,0 +1,49 @@
+<html>
+
+<head>
+	<title>pdbzip</title>
+	<script type="text/javascript" src="https://npmcdn.com/ejs@3.1.8/ejs.min.js"></script>
+</head>
+
+<body>
+	<h2>List</h2>
+	<br />
+	<div id="render"></div>
+	<script type="text/javascript">
+		let __data = [];
+
+		async function loadJson(url) {
+			const r = await (await fetch(url)).json();
+
+			return r;
+		}
+
+		function render(data) {
+			const html = ejs.render(`
+			<ul>
+			<% for(const entry of data ) { %>
+				<li><a href="info.html#<%= entry %>"><%= entry %></a></li>
+			<% } %>
+			</ul>
+			`, { data });
+
+			document.getElementById('render').innerHTML = html;
+		}
+
+		async function init() {
+
+			try {
+				const data = await loadJson('list.json');
+				__data = data;
+				render(data);
+			}
+			catch (e) {
+				alert(e)
+			}
+		}
+
+		init();
+	</script>
+</body>
+
+</html>
